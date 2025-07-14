@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Labyrinth - AI-Powered Exam Management System
 
 A modern, AI-enhanced examination management platform with intelligent PDF question extraction capabilities.
@@ -200,3 +201,7 @@ For support and questions:
 ---
 
 **Labyrinth** - Making exam creation effortless with AI! 🎓✨ 
+=======
+# Labyrinth
+The exam environment  system for the admin Side.
+>>>>>>> a1c0d49d03f337d109a7170b8a8c332b29f4297e
