@@ -1,0 +1,1 @@
+export default function Questions() { return <div>Questions (placeholder)</div>; } 

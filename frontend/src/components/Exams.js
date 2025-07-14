@@ -1,0 +1,1 @@
+export default function Exams() { return <div>Exams (placeholder)</div>; } 

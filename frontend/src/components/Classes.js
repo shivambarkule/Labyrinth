@@ -1,0 +1,1 @@
+export default function Classes() { return <div>Classes (placeholder)</div>; } 

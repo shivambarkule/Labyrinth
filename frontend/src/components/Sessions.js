@@ -1,0 +1,1 @@
+export default function Sessions() { return <div>Sessions (placeholder)</div>; } 
