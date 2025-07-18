@@ -2,6 +2,19 @@ import React, { useState, useEffect, createContext, useContext } from 'react';
 import './App.css';
 import PDFUploader from './components/PDFUploader';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { db } from './firebase';
+import {
+  collection,
+  getDocs,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  doc,
+  onSnapshot
+} from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth } from './firebase';
+import MouseCursor from './components/MouseCursor';
 
 // Theme Context
 interface ThemeContextType {
@@ -34,7 +47,7 @@ interface User {
   _id: string;
   name: string;
   email: string;
-  role: 'admin';
+  role: 'admin' | 'student';
   username: string;
 }
 
@@ -47,18 +60,39 @@ interface Session {
   isActive: boolean;
 }
 
+interface Year {
+  _id: string;
+  name: string;
+  description: string;
+}
+
+interface Department {
+  _id: string;
+  name: string;
+  description: string;
+  yearId: string;
+}
+
 interface Class {
   _id: string;
   name: string;
   description: string;
-  sessionId: string;
+  departmentId: string;
+  classCode: string;
+}
+
+interface Subject {
+  _id: string;
+  name: string;
+  description: string;
+  classId: string;
 }
 
 interface Exam {
   _id: string;
   title: string;
   description: string;
-  classId: string;
+  subjectId: string;
   duration: number;
   totalMarks: number;
   passingMarks: number;
@@ -126,22 +160,28 @@ function App() {
   
   const [user, setUser] = useState<User | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [currentView, setCurrentView] = useState<'login' | 'dashboard' | 'sessions' | 'classes' | 'exams' | 'questions'>('login');
+  const [currentView, setCurrentView] = useState(() => {
+    return localStorage.getItem('currentView') as any || 'login';
+  });
   
   // Data states
-  const [sessions, setSessions] = useState<Session[]>([]);
+  const [years, setYears] = useState<Year[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
   const [exams, setExams] = useState<Exam[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
   
   // Selected items for navigation
-  const [selectedSession, setSelectedSession] = useState<Session | null>(null);
+  const [selectedYear, setSelectedYear] = useState<Year | null>(null);
+  const [selectedDepartment, setSelectedDepartment] = useState<Department | null>(null);
   const [selectedClass, setSelectedClass] = useState<Class | null>(null);
+  const [selectedSubject, setSelectedSubject] = useState<Subject | null>(null);
   const [selectedExam, setSelectedExam] = useState<Exam | null>(null);
   
   // Modal states
   const [showModal, setShowModal] = useState(false);
-  const [modalType, setModalType] = useState<'session' | 'class' | 'exam' | 'question'>('session');
+  const [modalType, setModalType] = useState<'year' | 'department' | 'class' | 'subject' | 'exam' | 'question'>('year');
   const [editingItem, setEditingItem] = useState<any>(null);
 
   // Search and filter states
@@ -238,39 +278,125 @@ function App() {
     setUser(null);
     setIsAuthenticated(false);
     setCurrentView('login');
-    setSelectedSession(null);
+    setSelectedYear(null);
+    setSelectedDepartment(null);
     setSelectedClass(null);
+    setSelectedSubject(null);
     setSelectedExam(null);
     showToast('Successfully logged out', 'info');
   };
 
   // Load empty data (demo sessions removed)
   const loadMockData = () => {
-    setSessions([]);
+    setYears([]);
+    setDepartments([]);
     setClasses([]);
+    setSubjects([]);
     setExams([]);
     setQuestions([]);
   };
 
+  // Helper to generate a unique class code
+  function generateClassCode() {
+    return Math.random().toString(36).substring(2, 8).toUpperCase();
+  }
+
+
+
+  // --- Classes ---
+useEffect(() => {
+  const unsub = onSnapshot(collection(db, 'classes'), (snapshot) => {
+    setClasses(snapshot.docs.map(doc => ({ _id: doc.id, ...doc.data() } as Class)));
+  });
+  return () => unsub();
+}, []);
+
+const createClass = async (data: Omit<Class, '_id'>) => {
+  await addDoc(collection(db, 'classes'), { ...data, departmentId: selectedDepartment?._id });
+};
+const updateClass = async (id: string, data: Partial<Class>) => {
+  await updateDoc(doc(db, 'classes', id), data);
+};
+const deleteClass = async (id: string) => {
+  await deleteDoc(doc(db, 'classes', id));
+};
+
+// --- Subjects ---
+useEffect(() => {
+  const unsub = onSnapshot(collection(db, 'subjects'), (snapshot) => {
+    setSubjects(snapshot.docs.map(doc => ({ _id: doc.id, ...doc.data() } as Subject)));
+  });
+  return () => unsub();
+}, []);
+
+const createSubject = async (data: Omit<Subject, '_id'>) => {
+  await addDoc(collection(db, 'subjects'), { ...data, classId: selectedClass?._id });
+};
+const updateSubject = async (id: string, data: Partial<Subject>) => {
+  await updateDoc(doc(db, 'subjects', id), data);
+};
+const deleteSubject = async (id: string) => {
+  await deleteDoc(doc(db, 'subjects', id));
+};
+
+// --- Exams ---
+useEffect(() => {
+  const unsub = onSnapshot(collection(db, 'exams'), (snapshot) => {
+    setExams(snapshot.docs.map(doc => ({ _id: doc.id, ...doc.data() } as Exam)));
+  });
+  return () => unsub();
+}, []);
+
+const createExam = async (data: Omit<Exam, '_id'>) => {
+  await addDoc(collection(db, 'exams'), { ...data, subjectId: selectedSubject?._id });
+};
+const updateExam = async (id: string, data: Partial<Exam>) => {
+  await updateDoc(doc(db, 'exams', id), data);
+};
+const deleteExam = async (id: string) => {
+  await deleteDoc(doc(db, 'exams', id));
+};
+
+// --- Questions ---
+useEffect(() => {
+  const unsub = onSnapshot(collection(db, 'questions'), (snapshot) => {
+    setQuestions(snapshot.docs.map(doc => ({ _id: doc.id, ...doc.data() } as Question)));
+  });
+  return () => unsub();
+}, []);
+
+const createQuestion = async (data: Omit<Question, '_id'>) => {
+  await addDoc(collection(db, 'questions'), { ...data, examId: selectedExam?._id });
+};
+const updateQuestion = async (id: string, data: Partial<Question>) => {
+  await updateDoc(doc(db, 'questions', id), data);
+};
+const deleteQuestion = async (id: string) => {
+  await deleteDoc(doc(db, 'questions', id));
+};
+
+
+
   // CRUD Operations
   const createItem = (type: string, data: any) => {
-    const newId = Date.now().toString();
     switch (type) {
-      case 'session':
-        setSessions(prev => [...prev, { ...data, _id: newId }]);
-        showToast('Session created successfully!', 'success');
+      case 'year':
+        createYear(data);
+        break;
+      case 'department':
+        createDepartment(data);
         break;
       case 'class':
-        setClasses(prev => [...prev, { ...data, _id: newId, sessionId: selectedSession?._id }]);
-        showToast('Class created successfully!', 'success');
+        createClass(data);
+        break;
+      case 'subject':
+        createSubject(data);
         break;
       case 'exam':
-        setExams(prev => [...prev, { ...data, _id: newId, classId: selectedClass?._id }]);
-        showToast('Exam created successfully!', 'success');
+        createExam(data);
         break;
       case 'question':
-        setQuestions(prev => [...prev, { ...data, _id: newId, examId: selectedExam?._id, order: prev.filter(q => q.examId === selectedExam?._id).length + 1 }]);
-        showToast('Question created successfully!', 'success');
+        createQuestion(data);
         break;
     }
     setShowModal(false);
@@ -279,21 +405,23 @@ function App() {
 
   const updateItem = (type: string, id: string, data: any) => {
     switch (type) {
-      case 'session':
-        setSessions(prev => prev.map(item => item._id === id ? { ...item, ...data } : item));
-        showToast('Session updated successfully!', 'success');
+      case 'year':
+        updateYear(id, data);
+        break;
+      case 'department':
+        updateDepartment(id, data);
         break;
       case 'class':
-        setClasses(prev => prev.map(item => item._id === id ? { ...item, ...data } : item));
-        showToast('Class updated successfully!', 'success');
+        updateClass(id, data);
+        break;
+      case 'subject':
+        updateSubject(id, data);
         break;
       case 'exam':
-        setExams(prev => prev.map(item => item._id === id ? { ...item, ...data } : item));
-        showToast('Exam updated successfully!', 'success');
+        updateExam(id, data);
         break;
       case 'question':
-        setQuestions(prev => prev.map(item => item._id === id ? { ...item, ...data } : item));
-        showToast('Question updated successfully!', 'success');
+        updateQuestion(id, data);
         break;
     }
     setShowModal(false);
@@ -301,67 +429,52 @@ function App() {
   };
 
   const deleteItem = (type: string, id: string) => {
-    if (window.confirm('Are you sure you want to delete this item?')) {
-      switch (type) {
-        case 'session':
-          setSessions(prev => prev.filter(item => item._id !== id));
-          setClasses(prev => prev.filter(item => item.sessionId !== id));
-          showToast('Session deleted successfully!', 'success');
-          break;
-        case 'class':
-          setClasses(prev => prev.filter(item => item._id !== id));
-          setExams(prev => prev.filter(item => item.classId !== id));
-          showToast('Class deleted successfully!', 'success');
-          break;
-
-  const openModal = (type: 'session' | 'class' | 'exam' | 'question', item?: any) => {
-    setModalType(type);
-    setEditingItem(item || null);
-    setShowModal(true);
-  };
-
-  // Navigation functions
-  const navigateToClasses = (session: Session) => {
-    setSelectedSession(session);
-    setCurrentView('classes');
-  };
-
-  const navigateToExams = (classItem: Class) => {
-    setSelectedClass(classItem);
-    setCurrentView('exams');
-  };
-
-  const navigateToQuestions = (exam: Exam) => {
-    setSelectedExam(exam);
-    setCurrentView('questions');
-  };
-
-  
-        case 'exam':
-          setExams(prev => prev.filter(item => item._id !== id));
-          setQuestions(prev => prev.filter(item => item.examId !== id));
-          break;
-        case 'question':
-          setQuestions(prev => prev.filter(item => item._id !== id));
-          break;
-      }
+    switch (type) {
+      case 'year':
+        deleteYear(id);
+        break;
+      case 'department':
+        deleteDepartment(id);
+        break;
+      case 'class':
+        deleteClass(id);
+        break;
+      case 'subject':
+        deleteSubject(id);
+        break;
+      case 'exam':
+        deleteExam(id);
+        break;
+      case 'question':
+        deleteQuestion(id);
+        break;
     }
   };
 
-  const openModal = (type: 'session' | 'class' | 'exam' | 'question', item?: any) => {
+  const openModal = (type: 'year' | 'department' | 'class' | 'subject' | 'exam' | 'question', item?: any) => {
     setModalType(type);
     setEditingItem(item || null);
     setShowModal(true);
   };
 
-  // Navigation functions
-  const navigateToClasses = (session: Session) => {
-    setSelectedSession(session);
+  // Navigation functions for new hierarchy
+  const navigateToDepartments = (year: Year) => {
+    setSelectedYear(year);
+    setCurrentView('departments');
+  };
+
+  const navigateToClasses = (department: Department) => {
+    setSelectedDepartment(department);
     setCurrentView('classes');
   };
 
-  const navigateToExams = (classItem: Class) => {
+  const navigateToSubjects = (classItem: Class) => {
     setSelectedClass(classItem);
+    setCurrentView('subjects');
+  };
+
+  const navigateToExams = (subject: Subject) => {
+    setSelectedSubject(subject);
     setCurrentView('exams');
   };
 
@@ -371,8 +484,8 @@ function App() {
   };
 
   const LoginForm = () => {
-    const [authMethod, setAuthMethod] = useState<'email' | 'emailLink' | 'phone'>('email');
-    const [isSignUp, setIsSignUp] = useState(false); // <-- Add signup toggle state
+    const [authMethod, setAuthMethod] = useState<'email' | 'emailLink'>('email');
+    const [isSignUp, setIsSignUp] = useState(false);
     // Email/Password states
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -380,12 +493,8 @@ function App() {
     const [username, setUsername] = useState('');
     // Email Link states
     // (reuse email)
-    // Phone Auth states
-    const [phone, setPhone] = useState('');
-    const [code, setCode] = useState('');
-    const [isCodeSent, setIsCodeSent] = useState(false);
-    const { sendPhoneCode, confirmPhoneCode } = useAuth();
     const [showPassword, setShowPassword] = useState(false);
+    const [passwordError, setPasswordError] = useState('');
 
     const handleSendLink = async () => {
       try {
@@ -393,33 +502,6 @@ function App() {
         showToast('Sign-in link sent! Check your email.', 'success');
       } catch (err: any) {
         showToast('Error sending link: ' + (err.message || err), 'error');
-      }
-    };
-    const handleSendCode = async () => {
-      try {
-        await sendPhoneCode(phone, 'recaptcha-container');
-        setIsCodeSent(true);
-        showToast('Verification code sent!', 'success');
-      } catch (err: any) {
-        showToast('Error sending code: ' + (err.message || err), 'error');
-      }
-    };
-    const handleConfirmCode = async () => {
-      try {
-        const result = await confirmPhoneCode(code);
-        const mockUser: User = {
-          _id: result.user.uid,
-          name: result.user.displayName || 'Admin',
-          email: result.user.email || '',
-          role: 'admin',
-          username: result.user.phoneNumber || 'admin'
-        };
-        setUser(mockUser);
-        showToast('Phone verified and signed in!', 'success');
-        setIsAuthenticated(true);
-        setCurrentView('dashboard');
-      } catch (err: any) {
-        showToast('Error verifying code: ' + (err.message || err), 'error');
       }
     };
 
@@ -445,13 +527,13 @@ function App() {
           <div className="auth-method-selector">
             <button type="button" className={`auth-method-btn${authMethod === 'email' ? ' selected' : ''}`} onClick={() => setAuthMethod('email')}>Email/Password</button>
             <button type="button" className={`auth-method-btn${authMethod === 'emailLink' ? ' selected' : ''}`} onClick={() => setAuthMethod('emailLink')}>Email Link</button>
-            <button type="button" className={`auth-method-btn${authMethod === 'phone' ? ' selected' : ''}`} onClick={() => setAuthMethod('phone')}>Phone</button>
           </div>
           {authMethod === 'email' && (
             <form onSubmit={async (e) => {
               e.preventDefault();
               if (isSignUp) {
                 await signup(email, password, fullName, username);
+                setIsSignUp(false); // Switch to sign-in after successful signup
               } else {
                 await handleLogin(email, password, fullName, username);
               }
@@ -463,7 +545,7 @@ function App() {
                   type="text"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
-                  placeholder="Full Name"
+                  placeholder=" "
                   required
                   className="modern-input"
                   disabled={isLoading}
@@ -478,7 +560,7 @@ function App() {
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Username"
+                  placeholder=" "
                   required
                   className="modern-input"
                   disabled={isLoading}
@@ -507,7 +589,14 @@ function App() {
                 <input
                   type={showPassword ? "text" : "password"}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (isSignUp && e.target.value.length > 0 && e.target.value.length < 6) {
+                      setPasswordError('Password must be at least 6 characters');
+                    } else {
+                      setPasswordError('');
+                    }
+                  }}
                   placeholder=" "
                   required
                   className="modern-input"
@@ -522,13 +611,16 @@ function App() {
                 >
                   {showPassword ? '👁️' : '👁️‍🗨️'}
                 </button>
+                {isSignUp && passwordError && (
+                  <div style={{ color: 'red', fontSize: '0.9rem', marginTop: '0.25rem' }}>{passwordError}</div>
+                )}
               </div>
             </div>
             
             <button 
               type="submit" 
               className={`login-btn modern ${isLoading ? 'loading' : ''}`}
-              disabled={isLoading}
+              disabled={isLoading || (isSignUp && password.length < 6)}
             >
               {isLoading ? (
                 <>
@@ -552,7 +644,7 @@ function App() {
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="Email Address"
+                    placeholder=" "
                     required
                     className="modern-input"
                     disabled={isLoading}
@@ -571,57 +663,7 @@ function App() {
               </button>
             </form>
           )}
-          {authMethod === 'phone' && (
-            <form onSubmit={e => e.preventDefault()} className="login-form-content">
-              <div className="form-group modern">
-                <div className="input-container">
-                  <input
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="Phone Number"
-                    className="modern-input"
-                    disabled={isLoading}
-                  />
-                  <label className="floating-label">Phone Number</label>
-                </div>
-                <button type="button" className="login-btn modern" onClick={handleSendCode} disabled={isLoading || !phone}>
-                  Send Code
-                </button>
-              </div>
-              <div id="recaptcha-container"></div>
-              {isCodeSent && (
-                <div className="form-group modern">
-                  <div className="input-container">
-                    <input
-                      type="text"
-                      value={code}
-                      onChange={(e) => setCode(e.target.value)}
-                      placeholder="Verification Code"
-                      className="modern-input"
-                      disabled={isLoading}
-                    />
-                    <label className="floating-label">Verification Code</label>
-                  </div>
-                  <button type="button" className="login-btn modern" onClick={handleConfirmCode} disabled={isLoading || !code}>
-                    Confirm Code
-                  </button>
-                </div>
-              )}
-            </form>
-          )}
           
-          <div className="demo-info">
-            <div className="info-card">
-              <h4>🚀 Demo Access</h4>
-              <div className="demo-options">
-                <div className="demo-credential">
-                  <strong>Administrator:</strong> Full system access
-                </div>
-              </div>
-              <p className="demo-note">Use any email/password combination</p>
-            </div>
-          </div>
           <div style={{ marginTop: '1rem', textAlign: 'center' }}>
             <button
               type="button"
@@ -753,22 +795,40 @@ function App() {
     
     const stats = [
       {
-        id: 'sessions',
-        title: 'Active Sessions',
-        value: sessions.filter(s => s.isActive).length,
-        icon: '🎯',
+        id: 'years',
+        title: 'Total Years',
+        value: years.length,
+        icon: '📅',
         color: 'primary',
         gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        description: 'Currently running examination sessions'
+        description: 'Years across all departments'
+      },
+      {
+        id: 'departments',
+        title: 'Total Departments',
+        value: departments.length,
+        icon: '🏛️',
+        color: 'success',
+        gradient: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+        description: 'Departments across all years'
       },
       {
         id: 'classes',
         title: 'Total Classes',
         value: classes.length,
         icon: '🏛️',
-        color: 'success',
-        gradient: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
-        description: 'Classes across all sessions'
+        color: 'warning',
+        gradient: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
+        description: 'Classes across all departments'
+      },
+      {
+        id: 'subjects',
+        title: 'Total Subjects',
+        value: subjects.length,
+        icon: '🏛️',
+        color: 'info',
+        gradient: 'linear-gradient(135deg, #a8edea 0%, #fed6e3 100%)',
+        description: 'Subjects across all classes'
       },
       {
         id: 'exams',
@@ -792,20 +852,38 @@ function App() {
 
     const quickActions = [
       {
-        id: 'sessions',
-        title: 'Manage Sessions',
-        description: 'View and organize examination sessions',
-        icon: '📚',
-        action: () => setCurrentView('sessions'),
+        id: 'years',
+        title: 'Manage Years',
+        description: 'View and organize years',
+        icon: '📅',
+        action: () => setCurrentView('years'),
         gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
         available: true
       },
       {
-        id: 'create-session',
-        title: 'Create Session',
-        description: 'Start a new examination session',
+        id: 'create-year',
+        title: 'Create Year',
+        description: 'Start a new academic year',
         icon: '➕',
-        action: () => openModal('session'),
+        action: () => openModal('year'),
+        gradient: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)',
+        available: user?.role === 'admin'
+      },
+      {
+        id: 'departments',
+        title: 'Manage Departments',
+        description: 'View and organize departments',
+        icon: '🏛️',
+        action: () => setCurrentView('departments'),
+        gradient: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
+        available: user?.role === 'admin'
+      },
+      {
+        id: 'create-department',
+        title: 'Create Department',
+        description: 'Start a new department',
+        icon: '➕',
+        action: () => openModal('department'),
         gradient: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)',
         available: user?.role === 'admin'
       },
@@ -814,7 +892,7 @@ function App() {
         title: 'View Analytics',
         description: 'Examine performance metrics',
         icon: '📊',
-        action: () => setCurrentView('sessions'),
+        action: () => setCurrentView('years'),
         gradient: 'linear-gradient(135deg, #fc466b 0%, #3f5efb 100%)',
         available: user?.role === 'admin'
       },
@@ -948,16 +1026,16 @@ function App() {
         </div>
 
         {/* Recent Activity Section */}
-        {sessions.length > 0 && (
+        {years.length > 0 && (
           <div className="recent-activity-section">
             <h2 className="section-title">
               <span className="title-icon">🕒</span>
               Recent Activity
             </h2>
             <div className="activity-timeline">
-              {sessions.slice(0, 3).map((session, index) => (
+              {years.slice(0, 3).map((year, index) => (
                 <div
-                  key={session._id}
+                  key={year._id}
                   className="timeline-item"
                   style={{ '--animation-delay': `${index * 0.2}s` } as React.CSSProperties}
                 >
@@ -967,18 +1045,12 @@ function App() {
                   </div>
                   <div className="timeline-content">
                     <div className="timeline-header">
-                      <h4>{session.name}</h4>
-                      <span className={`timeline-status ${session.isActive ? 'active' : 'inactive'}`}>
-                        {session.isActive ? 'Active' : 'Inactive'}
-                      </span>
+                      <h4>{year.name}</h4>
                     </div>
-                    <p className="timeline-description">{session.description}</p>
+                    <p className="timeline-description">{year.description}</p>
                     <div className="timeline-meta">
-                      <span className="timeline-date">
-                        📅 {new Date(session.startDate).toLocaleDateString()}
-                      </span>
-                      <span className="timeline-classes">
-                        🏫 {classes.filter(c => c.sessionId === session._id).length} classes
+                      <span className="timeline-departments">
+                        🏛️ {departments.filter(d => d.yearId === year._id).length} departments
                       </span>
                     </div>
                   </div>
@@ -1012,9 +1084,9 @@ function App() {
         </div>
         <div className="header-actions">
           {user?.role === 'admin' && (
-            <button onClick={() => openModal('session')} className="modern-btn primary">
+            <button onClick={() => openModal('year')} className="modern-btn primary">
               <span className="btn-icon">➕</span>
-              <span>Create Session</span>
+              <span>Create Year</span>
               <div className="btn-ripple"></div>
             </button>
           )}
@@ -1027,66 +1099,58 @@ function App() {
       </div>
       
       <div className="modern-grid">
-        {sessions.map((session, index) => (
+        {years.map((year, index) => (
           <div 
-            key={session._id} 
-            className="modern-card session-card"
+            key={year._id} 
+            className="modern-card year-card"
             style={{ '--animation-delay': `${index * 0.1}s` } as React.CSSProperties}
           >
             <div className="card-glow"></div>
             <div className="card-content">
               <div className="card-header">
                 <div className="card-title">
-                  <h3>{session.name}</h3>
-                  <div className={`status-badge ${session.isActive ? 'active' : 'inactive'}`}>
-                    <div className="status-dot"></div>
-                    {session.isActive ? 'Active' : 'Inactive'}
+                  <h3>{year.name}</h3>
+                </div>
+                <div className="card-description">
+                  {year.description}
+                </div>
+                <div className="card-meta">
+                  <div className="meta-item">
+                    <span className="meta-icon">🏛️</span>
+                    <span>{departments.filter(d => d.yearId === year._id).length} Departments</span>
                   </div>
                 </div>
-              </div>
-              <div className="card-description">
-                {session.description}
-              </div>
-              <div className="card-meta">
-                <div className="meta-item">
-                  <span className="meta-icon">📅</span>
-                  <span>{new Date(session.startDate).toLocaleDateString()} - {new Date(session.endDate).toLocaleDateString()}</span>
+                <div className="card-actions">
+                  <button onClick={() => navigateToDepartments(year)} className="action-btn primary">
+                    <span className="btn-icon">👁️</span>
+                    <span>View Departments</span>
+                    <div className="btn-arrow">→</div>
+                  </button>
+                  {user?.role === 'admin' && (
+                    <div className="admin-actions">
+                      <button onClick={() => openModal('year', year)} className="action-btn edit">
+                        <span className="btn-icon">✏️</span>
+                      </button>
+                      <button onClick={() => deleteItem('year', year._id)} className="action-btn delete">
+                        <span className="btn-icon">🗑️</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <div className="meta-item">
-                  <span className="meta-icon">🏛️</span>
-                  <span>{classes.filter(c => c.sessionId === session._id).length} Classes</span>
-                </div>
-              </div>
-              <div className="card-actions">
-                <button onClick={() => navigateToClasses(session)} className="action-btn primary">
-                  <span className="btn-icon">👁️</span>
-                  <span>View Classes</span>
-                  <div className="btn-arrow">→</div>
-                </button>
-                {user?.role === 'admin' && (
-                  <div className="admin-actions">
-                    <button onClick={() => openModal('session', session)} className="action-btn edit">
-                      <span className="btn-icon">✏️</span>
-                    </button>
-                    <button onClick={() => deleteItem('session', session._id)} className="action-btn delete">
-                      <span className="btn-icon">🗑️</span>
-                    </button>
-                  </div>
-                )}
               </div>
             </div>
           </div>
         ))}
         
-        {sessions.length === 0 && (
+        {years.length === 0 && (
           <div className="empty-state">
             <div className="empty-icon">📚</div>
-            <h3>No Sessions Found</h3>
-            <p>Create your first examination session to get started</p>
+            <h3>No Years Found</h3>
+            <p>Create your first academic year to get started</p>
             {user?.role === 'admin' && (
-              <button onClick={() => openModal('session')} className="modern-btn primary">
+              <button onClick={() => openModal('year')} className="modern-btn primary">
                 <span className="btn-icon">➕</span>
-                <span>Create Session</span>
+                <span>Create Year</span>
               </button>
             )}
           </div>
@@ -1095,8 +1159,8 @@ function App() {
     </div>
   );
 
-  const ClassesView = () => {
-    const sessionClasses = classes.filter(c => c.sessionId === selectedSession?._id);
+  const DepartmentsView = () => {
+    const yearDepartments = departments.filter(d => d.yearId === selectedYear?._id);
     
     return (
       <div className="modern-view">
@@ -1109,11 +1173,140 @@ function App() {
         <div className="modern-header">
           <div className="header-content">
             <div className="modern-breadcrumb">
-              <span onClick={() => setCurrentView('sessions')} className="breadcrumb-item">
-                📚 Sessions
+              <span onClick={() => setCurrentView('years')} className="breadcrumb-item">
+                📚 Years
               </span>
               <span className="breadcrumb-separator">›</span>
-              <span className="breadcrumb-current">{selectedSession?.name}</span>
+              <span onClick={() => setCurrentView('years')} className="breadcrumb-item">
+                {selectedYear?.name}
+              </span>
+              <span className="breadcrumb-separator">›</span>
+              <span className="breadcrumb-current">{selectedYear?.name}</span>
+            </div>
+            <div className="header-title">
+              <div className="title-icon">🏛️</div>
+              <h2>Departments</h2>
+              <div className="title-glow"></div>
+            </div>
+            <div className="header-description">
+              Manage departments within {selectedYear?.name}
+            </div>
+          </div>
+          <div className="header-actions">
+            {user?.role === 'admin' && (
+              <button onClick={() => openModal('department')} className="modern-btn primary">
+                <span className="btn-icon">➕</span>
+                <span>Create Department</span>
+                <div className="btn-ripple"></div>
+              </button>
+            )}
+            <button onClick={() => setCurrentView('years')} className="modern-btn secondary">
+              <span className="btn-icon">←</span>
+              <span>Back to Years</span>
+              <div className="btn-ripple"></div>
+            </button>
+          </div>
+        </div>
+        
+        <div className="modern-grid">
+          {yearDepartments.map((department, index) => (
+            <div 
+              key={department._id} 
+              className="modern-card department-card"
+              style={{ '--animation-delay': `${index * 0.1}s` } as React.CSSProperties}
+            >
+              <div className="card-glow"></div>
+              <div className="card-content">
+                <div className="card-header">
+                  <div className="card-title">
+                    <h3>{department.name}</h3>
+                  </div>
+                  <div className="card-description">
+                    {department.description}
+                  </div>
+                  <div className="card-meta">
+                    <div className="meta-item">
+                      <span className="meta-icon">📝</span>
+                      {(() => {
+                        const classSubjects = subjects.filter(s => s.classId === (selectedClass?._id || department._id));
+                        const examCount = exams.filter(e => classSubjects.some(s => s._id === e.subjectId)).length;
+                        return <span>{examCount} Exams</span>;
+                      })()}
+                    </div>
+                  </div>
+                  <div className="card-actions">
+                    <button onClick={() => navigateToClasses(department)} className="action-btn primary">
+                      <span className="btn-icon">👁️</span>
+                      <span>View Classes</span>
+                      <div className="btn-arrow">→</div>
+                    </button>
+                    {user?.role === 'admin' && (
+                      <div className="admin-actions">
+                        <button onClick={() => openModal('department', department)} className="action-btn edit">
+                          <span className="btn-icon">✏️</span>
+                        </button>
+                        <button onClick={() => deleteItem('department', department._id)} className="action-btn delete">
+                          <span className="btn-icon">🗑️</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+          
+          {yearDepartments.length === 0 && (
+            <div className="empty-state">
+              <div className="empty-icon">🏛️</div>
+              <h3>No Departments Found</h3>
+              <p>Create your first department in this year</p>
+              {user?.role === 'admin' && (
+                <button onClick={() => openModal('department')} className="modern-btn primary">
+                  <span className="btn-icon">➕</span>
+                  <span>Create Department</span>
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const ClassesView = () => {
+    const departmentClasses = classes.filter(c => c.departmentId === selectedDepartment?._id);
+    const [joinCode, setJoinCode] = useState('');
+    const [joinError, setJoinError] = useState('');
+
+    // Handler for joining a class by code
+    const handleJoinClass = () => {
+      setJoinError('');
+      const foundClass = classes.find(c => c.classCode === joinCode.trim().toUpperCase());
+      if (foundClass) {
+        // Here you would add logic to add the student to the class in Firestore
+        showToast(`Joined class: ${foundClass.name}`, 'success');
+        setJoinCode('');
+      } else {
+        setJoinError('Invalid class code.');
+      }
+    };
+
+    return (
+      <div className="modern-view">
+        <div className="floating-shapes">
+          <div className="shape shape-1"></div>
+          <div className="shape shape-2"></div>
+          <div className="shape shape-3"></div>
+        </div>
+        <div className="modern-header">
+          <div className="header-content">
+            <div className="modern-breadcrumb">
+              <span onClick={() => setCurrentView('departments')} className="breadcrumb-item">
+                🏛️ Departments
+              </span>
+              <span className="breadcrumb-separator">›</span>
+              <span className="breadcrumb-current">{selectedDepartment?.name}</span>
             </div>
             <div className="header-title">
               <div className="title-icon">🏛️</div>
@@ -1121,7 +1314,7 @@ function App() {
               <div className="title-glow"></div>
             </div>
             <div className="header-description">
-              Manage classes within {selectedSession?.name}
+              Manage classes within {selectedDepartment?.name}
             </div>
           </div>
           <div className="header-actions">
@@ -1132,16 +1325,36 @@ function App() {
                 <div className="btn-ripple"></div>
               </button>
             )}
-            <button onClick={() => setCurrentView('sessions')} className="modern-btn secondary">
+            <button onClick={() => setCurrentView('departments')} className="modern-btn secondary">
               <span className="btn-icon">←</span>
-              <span>Back to Sessions</span>
+              <span>Back to Departments</span>
               <div className="btn-ripple"></div>
             </button>
           </div>
         </div>
-        
+
+        {/* Join Class Slab for Students */}
+        {user?.role === 'student' && (
+          <div className="join-class-slab" style={{ margin: '2rem auto', maxWidth: 400, background: '#f8f9fa', borderRadius: 10, padding: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+            <h4 style={{ marginBottom: 10 }}>Join a Class</h4>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                type="text"
+                value={joinCode}
+                onChange={e => setJoinCode(e.target.value)}
+                placeholder="Enter class code"
+                style={{ flex: 1, padding: 8, borderRadius: 5, border: '1px solid #ccc' }}
+              />
+              <button onClick={handleJoinClass} style={{ padding: '8px 16px', borderRadius: 5, background: '#667eea', color: '#fff', border: 'none', cursor: 'pointer' }}>
+                Join
+              </button>
+            </div>
+            {joinError && <div style={{ color: 'red', marginTop: 8 }}>{joinError}</div>}
+          </div>
+        )}
+
         <div className="modern-grid">
-          {sessionClasses.map((classItem, index) => (
+          {departmentClasses.map((classItem, index) => (
             <div 
               key={classItem._id} 
               className="modern-card class-card"
@@ -1149,9 +1362,13 @@ function App() {
             >
               <div className="card-glow"></div>
               <div className="card-content">
-                <div className="card-header">
+                <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div className="card-title">
                     <h3>{classItem.name}</h3>
+                  </div>
+                  {/* Display class code at top right */}
+                  <div style={{ fontWeight: 600, fontSize: 14, color: '#667eea', background: '#eef2ff', borderRadius: 6, padding: '2px 10px', marginLeft: 8 }} title="Class Code">
+                    {classItem.classCode}
                   </div>
                 </div>
                 <div className="card-description">
@@ -1160,13 +1377,17 @@ function App() {
                 <div className="card-meta">
                   <div className="meta-item">
                     <span className="meta-icon">📝</span>
-                    <span>{exams.filter(e => e.classId === classItem._id).length} Exams</span>
+                    {(() => {
+                      const classSubjects = subjects.filter(s => s.classId === classItem._id);
+                      const examCount = exams.filter(e => classSubjects.some(s => s._id === e.subjectId)).length;
+                      return <span>{examCount} Exams</span>;
+                    })()}
                   </div>
                 </div>
                 <div className="card-actions">
-                  <button onClick={() => navigateToExams(classItem)} className="action-btn primary">
+                  <button onClick={() => navigateToSubjects(classItem)} className="action-btn primary">
                     <span className="btn-icon">👁️</span>
-                    <span>View Exams</span>
+                    <span>View Subjects</span>
                     <div className="btn-arrow">→</div>
                   </button>
                   {user?.role === 'admin' && (
@@ -1183,12 +1404,11 @@ function App() {
               </div>
             </div>
           ))}
-          
-          {sessionClasses.length === 0 && (
+          {departmentClasses.length === 0 && (
             <div className="empty-state">
               <div className="empty-icon">🏛️</div>
               <h3>No Classes Found</h3>
-              <p>Create your first class in this session</p>
+              <p>Create your first class in this department</p>
               {user?.role === 'admin' && (
                 <button onClick={() => openModal('class')} className="modern-btn primary">
                   <span className="btn-icon">➕</span>
@@ -1202,8 +1422,8 @@ function App() {
     );
   };
 
-  const ExamsView = () => {
-    const classExams = exams.filter(e => e.classId === selectedClass?._id);
+  const SubjectsView = () => {
+    const classSubjects = subjects.filter(s => s.classId === selectedClass?._id);
     
     return (
       <div className="modern-view">
@@ -1216,30 +1436,26 @@ function App() {
         <div className="modern-header">
           <div className="header-content">
             <div className="modern-breadcrumb">
-              <span onClick={() => setCurrentView('sessions')} className="breadcrumb-item">
-                📚 Sessions
-              </span>
-              <span className="breadcrumb-separator">›</span>
               <span onClick={() => setCurrentView('classes')} className="breadcrumb-item">
-                {selectedSession?.name}
+                🏛️ Classes
               </span>
               <span className="breadcrumb-separator">›</span>
               <span className="breadcrumb-current">{selectedClass?.name}</span>
             </div>
             <div className="header-title">
-              <div className="title-icon">📝</div>
-              <h2>Examinations</h2>
+              <div className="title-icon">🏛️</div>
+              <h2>Subjects</h2>
               <div className="title-glow"></div>
             </div>
             <div className="header-description">
-              Manage examinations for {selectedClass?.name}
+              Manage subjects for {selectedClass?.name}
             </div>
           </div>
           <div className="header-actions">
             {user?.role === 'admin' && (
-              <button onClick={() => openModal('exam')} className="modern-btn primary">
+              <button onClick={() => openModal('subject')} className="modern-btn primary">
                 <span className="btn-icon">➕</span>
-                <span>Create Exam</span>
+                <span>Create Subject</span>
                 <div className="btn-ripple"></div>
               </button>
             )}
@@ -1252,7 +1468,118 @@ function App() {
         </div>
         
         <div className="modern-grid">
-          {classExams.map((exam, index) => (
+          {classSubjects.map((subject, index) => (
+            <div 
+              key={subject._id} 
+              className="modern-card subject-card"
+              style={{ '--animation-delay': `${index * 0.1}s` } as React.CSSProperties}
+            >
+              <div className="card-glow"></div>
+              <div className="card-content">
+                <div className="card-header">
+                  <div className="card-title">
+                    <h3>{subject.name}</h3>
+                  </div>
+                  <div className="card-description">
+                    {subject.description}
+                  </div>
+                  <div className="card-meta">
+                    <div className="meta-item">
+                      <span className="meta-icon">📝</span>
+                      {(() => {
+                        const classSubjects = subjects.filter(s => s.classId === subject._id);
+                        const examCount = exams.filter(e => classSubjects.some(s => s._id === e.subjectId)).length;
+                        return <span>{examCount} Exams</span>;
+                      })()}
+                    </div>
+                  </div>
+                  <div className="card-actions">
+                    <button onClick={() => navigateToExams(subject)} className="action-btn primary">
+                      <span className="btn-icon">👁️</span>
+                      <span>View Exams</span>
+                      <div className="btn-arrow">→</div>
+                    </button>
+                    {user?.role === 'admin' && (
+                      <div className="admin-actions">
+                        <button onClick={() => openModal('subject', subject)} className="action-btn edit">
+                          <span className="btn-icon">✏️</span>
+                        </button>
+                        <button onClick={() => deleteItem('subject', subject._id)} className="action-btn delete">
+                          <span className="btn-icon">🗑️</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+          
+          {classSubjects.length === 0 && (
+            <div className="empty-state">
+              <div className="empty-icon">🏛️</div>
+              <h3>No Subjects Found</h3>
+              <p>Create your first subject for this class</p>
+              {user?.role === 'admin' && (
+                <button onClick={() => openModal('subject')} className="modern-btn primary">
+                  <span className="btn-icon">➕</span>
+                  <span>Create Subject</span>
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const ExamsView = () => {
+    const subjectExams = exams.filter(e => e.subjectId === selectedSubject?._id);
+    
+    return (
+      <div className="modern-view">
+        <div className="floating-shapes">
+          <div className="shape shape-1"></div>
+          <div className="shape shape-2"></div>
+          <div className="shape shape-3"></div>
+        </div>
+        
+        <div className="modern-header">
+          <div className="header-content">
+            <div className="modern-breadcrumb">
+              <span onClick={() => setCurrentView('subjects')} className="breadcrumb-item">
+                🏛️ Subjects
+              </span>
+              <span className="breadcrumb-separator">›</span>
+              <span className="breadcrumb-current">{selectedSubject?.name}</span>
+            </div>
+            <div className="header-title">
+              <div className="title-icon">📝</div>
+              <h2>Examinations</h2>
+              <div className="title-glow"></div>
+            </div>
+            <div className="header-description">
+              Manage examinations for {selectedSubject?.name}
+            </div>
+          </div>
+          <div className="header-actions">
+            {user?.role === 'admin' && (
+              <button onClick={() => openModal('exam')} className="modern-btn primary">
+                <span className="btn-icon">➕</span>
+                <span>Create Exam</span>
+                <div className="btn-ripple"></div>
+              </button>
+            )}
+            <button onClick={() => setCurrentView('subjects')} className="modern-btn secondary">
+              <span className="btn-icon">←</span>
+              <span>Back to Subjects</span>
+              <div className="btn-ripple"></div>
+            </button>
+          </div>
+        </div>
+        
+        <div className="modern-grid">
+          {subjectExams.map((exam, index) => (
             <div 
               key={exam._id} 
               className="modern-card exam-card"
@@ -1319,11 +1646,11 @@ function App() {
             </div>
           ))}
           
-          {classExams.length === 0 && (
+          {subjectExams.length === 0 && (
             <div className="empty-state">
               <div className="empty-icon">📝</div>
               <h3>No Exams Found</h3>
-              <p>Create your first examination for this class</p>
+              <p>Create your first examination for this subject</p>
               {user?.role === 'admin' && (
                 <button onClick={() => openModal('exam')} className="modern-btn primary">
                   <span className="btn-icon">➕</span>
@@ -1370,17 +1697,19 @@ function App() {
         <div className="modern-header">
           <div className="header-content">
             <div className="modern-breadcrumb">
-              <span onClick={() => setCurrentView('sessions')} className="breadcrumb-item">
-                📚 Sessions
+              <span onClick={() => setCurrentView('years')} className="breadcrumb-item">
+                📚 Years
               </span>
               <span className="breadcrumb-separator">›</span>
-              <span onClick={() => setCurrentView('classes')} className="breadcrumb-item">
-                {selectedSession?.name}
+              <span onClick={() => setCurrentView('departments')} className="breadcrumb-item">
+                {selectedDepartment?.name}
               </span>
               <span className="breadcrumb-separator">›</span>
               <span onClick={() => setCurrentView('exams')} className="breadcrumb-item">
                 {selectedClass?.name}
               </span>
+              <span className="breadcrumb-separator">›</span>
+              <span className="breadcrumb-current">{selectedSubject?.name}</span>
               <span className="breadcrumb-separator">›</span>
               <span className="breadcrumb-current">{selectedExam?.title}</span>
             </div>
@@ -1519,11 +1848,11 @@ function App() {
 
     const renderFormFields = () => {
       switch (modalType) {
-        case 'session':
+        case 'year':
           return (
             <>
               <div className="form-group">
-                <label>Session Name:</label>
+                <label>Year Name:</label>
                 <input
                   type="text"
                   value={formData.name || ''}
@@ -1566,8 +1895,30 @@ function App() {
                     checked={formData.isActive || false}
                     onChange={(e) => setFormData({...formData, isActive: e.target.checked})}
                   />
-                  Active Session
+                  Active Year
                 </label>
+              </div>
+            </>
+          );
+        case 'department':
+          return (
+            <>
+              <div className="form-group">
+                <label>Department Name:</label>
+                <input
+                  type="text"
+                  value={formData.name || ''}
+                  onChange={(e) => setFormData({...formData, name: e.target.value})}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Description:</label>
+                <textarea
+                  value={formData.description || ''}
+                  onChange={(e) => setFormData({...formData, description: e.target.value})}
+                  required
+                />
               </div>
             </>
           );
@@ -1576,6 +1927,28 @@ function App() {
             <>
               <div className="form-group">
                 <label>Class Name:</label>
+                <input
+                  type="text"
+                  value={formData.name || ''}
+                  onChange={(e) => setFormData({...formData, name: e.target.value})}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Description:</label>
+                <textarea
+                  value={formData.description || ''}
+                  onChange={(e) => setFormData({...formData, description: e.target.value})}
+                  required
+                />
+              </div>
+            </>
+          );
+        case 'subject':
+          return (
+            <>
+              <div className="form-group">
+                <label>Subject Name:</label>
                 <input
                   type="text"
                   value={formData.name || ''}
@@ -1879,8 +2252,10 @@ function App() {
             <div className="modern-modal-header">
               <div className="modal-title">
                 <div className="title-icon">
-                  {modalType === 'session' ? '📚' : 
+                  {modalType === 'year' ? '📅' : 
+                   modalType === 'department' ? '🏛️' : 
                    modalType === 'class' ? '🏛️' : 
+                   modalType === 'subject' ? '🏛️' : 
                    modalType === 'exam' ? '📝' : '❓'}
                 </div>
                 <h3>{editingItem ? `Edit ${modalType.charAt(0).toUpperCase() + modalType.slice(1)}` : `Create ${modalType.charAt(0).toUpperCase() + modalType.slice(1)}`}</h3>
@@ -1932,12 +2307,12 @@ function App() {
               <span className="nav-text">Dashboard</span>
             </button>
             <button 
-              onClick={() => setCurrentView('sessions')}
-              className={`nav-link ${currentView === 'sessions' ? 'active' : ''}`}
-              title="Sessions"
+              onClick={() => setCurrentView('years')}
+              className={`nav-link ${currentView === 'years' ? 'active' : ''}`}
+              title="Years"
             >
               <span className="nav-icon">📚</span>
-              <span className="nav-text">Sessions</span>
+              <span className="nav-text">Years</span>
             </button>
           </div>
         </div>
@@ -1975,6 +2350,169 @@ function App() {
     </nav>
   );
 
+  // Add YearsView component
+  const YearsView = () => (
+    <div className="modern-view">
+      <div className="modern-header">
+        <div className="header-content">
+          <div className="header-title">
+            <div className="title-icon">📅</div>
+            <h2>Academic Years</h2>
+          </div>
+          <div className="header-description">
+            Manage and monitor academic years
+          </div>
+        </div>
+        <div className="header-actions">
+          {user?.role === 'admin' && (
+            <button onClick={() => openModal('year')} className="modern-btn primary">
+              <span className="btn-icon">➕</span>
+              <span>Create Year</span>
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="modern-grid">
+        {years.map((year, index) => (
+          <div key={year._id} className="modern-card year-card" style={{ '--animation-delay': `${index * 0.1}s` } as React.CSSProperties}>
+            <div className="card-content">
+              <div className="card-header">
+                <div className="card-title">
+                  <h3>{year.name}</h3>
+                </div>
+              </div>
+              <div className="card-description">{year.description}</div>
+              <div className="card-actions">
+                <button onClick={() => { setSelectedYear(year); setCurrentView('departments'); }} className="action-btn primary">
+                  <span className="btn-icon">👁️</span>
+                  <span>View Departments</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        ))}
+        {years.length === 0 && (
+          <div className="empty-state">
+            <div className="empty-icon">📅</div>
+            <h3>No Years Found</h3>
+            <p>Create your first academic year to get started</p>
+            {user?.role === 'admin' && (
+              <button onClick={() => openModal('year')} className="modern-btn primary">
+                <span className="btn-icon">➕</span>
+                <span>Create Year</span>
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  // Firestore: Fetch Years on mount
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'years'), (snapshot) => {
+      setYears(snapshot.docs.map(doc => ({ _id: doc.id, ...doc.data() } as Year)));
+    });
+    return () => unsub();
+  }, []);
+
+  // Firestore: Create Year
+  const createYear = async (data: Omit<Year, '_id'>) => {
+    try {
+      await addDoc(collection(db, 'years'), data);
+      showToast('Year created successfully!', 'success');
+    } catch (error: any) {
+      showToast('Failed to create year: ' + error.message, 'error');
+    }
+    setShowModal(false);
+    setEditingItem(null);
+  };
+
+  // Firestore: Update Year
+  const updateYear = async (id: string, data: Partial<Year>) => {
+    try {
+      await updateDoc(doc(db, 'years', id), data);
+      showToast('Year updated successfully!', 'success');
+    } catch (error: any) {
+      showToast('Failed to update year: ' + error.message, 'error');
+    }
+    setShowModal(false);
+    setEditingItem(null);
+  };
+
+  // Firestore: Delete Year
+  const deleteYear = async (id: string) => {
+    if (!window.confirm('Are you sure you want to delete this year?')) return;
+    try {
+      await deleteDoc(doc(db, 'years', id));
+      showToast('Year deleted successfully!', 'success');
+    } catch (error: any) {
+      showToast('Failed to delete year: ' + error.message, 'error');
+    }
+  };
+
+  // Firestore: Fetch Departments on mount
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'departments'), (snapshot) => {
+      setDepartments(snapshot.docs.map(doc => ({ _id: doc.id, ...doc.data() } as Department)));
+    });
+    return () => unsub();
+  }, []);
+
+  // Firestore: Create Department
+  const createDepartment = async (data: Omit<Department, '_id'>) => {
+    await addDoc(collection(db, 'departments'), { ...data, yearId: selectedYear?._id });
+  };
+
+  // Firestore: Update Department
+  const updateDepartment = async (id: string, data: Partial<Department>) => {
+    await updateDoc(doc(db, 'departments', id), data);
+  };
+
+  // Firestore: Delete Department
+  const deleteDepartment = async (id: string) => {
+    await deleteDoc(doc(db, 'departments', id));
+  };
+
+  // Add state to track if auth is checked
+  const [isAuthChecked, setIsAuthChecked] = useState(false);
+  // Update user and isAuthenticated based on Firebase Auth
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      if (firebaseUser) {
+        setUser({
+          _id: firebaseUser.uid,
+          name: firebaseUser.displayName || 'Admin',
+          email: firebaseUser.email || '',
+          role: 'admin', // or derive from your user data
+          username: firebaseUser.email?.split('@')[0] || 'admin',
+        });
+        setIsAuthenticated(true);
+      } else {
+        setUser(null);
+        setIsAuthenticated(false);
+      }
+      setIsAuthChecked(true);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem('currentView', currentView);
+  }, [currentView]);
+
+  useEffect(() => {
+    const validViews = ['dashboard', 'years', 'departments', 'classes', 'subjects', 'exams', 'questions'];
+    if (isAuthenticated && !validViews.includes(currentView)) {
+      setCurrentView('dashboard');
+    }
+  }, [isAuthenticated, currentView]);
+
+  // Show loading spinner while checking auth
+  if (!isAuthChecked) {
+    return <div className="loading-container">Loading...</div>;
+  }
+
   if (!isAuthenticated) {
     return (
       <ThemeContext.Provider value={{ isDark, toggleTheme }}>
@@ -1990,6 +2528,7 @@ function App() {
     <ThemeContext.Provider value={{ isDark, toggleTheme }}>
       <ToastContext.Provider value={{ showToast }}>
         <div className="App">
+          <MouseCursor />
           <Navigation />
           <main className="main-content">
             {isLoading ? (
@@ -2001,8 +2540,10 @@ function App() {
             ) : (
               <>
                 {currentView === 'dashboard' && <Dashboard />}
-                {currentView === 'sessions' && <SessionsView />}
+                {currentView === 'years' && <YearsView />}
+                {currentView === 'departments' && <DepartmentsView />}
                 {currentView === 'classes' && <ClassesView />}
+                {currentView === 'subjects' && <SubjectsView />}
                 {currentView === 'exams' && <ExamsView />}
                 {currentView === 'questions' && <QuestionsView />}
               </>

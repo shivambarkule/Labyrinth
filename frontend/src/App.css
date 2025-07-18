@@ -53,6 +53,8 @@
   /* Background gradient */
   --bg-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   --surface-gradient: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%);
+
+  --welcome-text-color: #111;
 }
 
 /* Dark Theme */
@@ -78,6 +80,8 @@
   
   --bg-gradient: linear-gradient(135deg, #1a365d 0%, #2d3748 100%);
   --surface-gradient: linear-gradient(135deg, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.1) 100%);
+
+  --welcome-text-color: linear-gradient(135deg, var(--text-primary) 0%, var(--primary-600) 100%);
 }
 
 /* Reset and Base Styles */
@@ -108,6 +112,10 @@ html {
   display: flex;
   flex-direction: column;
   position: relative;
+}
+
+html, body, .App {
+  cursor: none !important;
 }
 
 /* ============================
@@ -468,23 +476,29 @@ html {
   left: 3rem;
   top: 50%;
   transform: translateY(-50%);
-  color: var(--text-tertiary);
+  color: #fff;
   font-size: 1rem;
+  font-family: 'Dancing Script', 'Pacifico', 'Caveat', cursive, sans-serif;
+  font-weight: 400;
   pointer-events: none;
   transition: all var(--transition-base);
-  background: var(--surface-50);
-  padding: 0 0.5rem;
-  border-radius: var(--radius-sm);
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  box-shadow: none;
+  letter-spacing: 0.5px;
 }
 
 .modern-input:focus + .floating-label,
 .modern-input:not(:placeholder-shown) + .floating-label {
   top: 0;
   left: 2.5rem;
-  font-size: 0.75rem;
-  color: var(--primary-500);
-  background: var(--glass-bg);
-  backdrop-filter: blur(5px);
+  font-size: 0.85rem;
+  color: #fff;
+  font-family: 'Dancing Script', 'Pacifico', 'Caveat', cursive, sans-serif;
+  font-weight: 400;
+  background: none;
+  box-shadow: none;
 }
 
 .input-icon {
@@ -1251,11 +1265,20 @@ select:focus-visible {
   font-size: 3rem;
   font-weight: 700;
   margin-bottom: 1rem;
+  color: var(--welcome-text-color);
+  background: none;
+  -webkit-background-clip: initial;
+  -webkit-text-fill-color: initial;
+  background-clip: initial;
+  animation: slideInLeft 1s ease-out;
+}
+
+[data-theme="dark"] .welcome-text h1 {
   background: linear-gradient(135deg, var(--text-primary) 0%, var(--primary-600) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  animation: slideInLeft 1s ease-out;
+  color: unset;
 }
 
 .user-highlight {
